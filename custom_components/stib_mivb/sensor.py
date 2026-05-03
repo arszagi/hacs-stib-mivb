@@ -39,7 +39,7 @@ async def async_setup_entry(
     """Set up STIB/MIVB sensors from a config entry."""
     coordinator: StibMivbCoordinator = hass.data[DOMAIN][entry.entry_id]
     language = entry.data.get(CONF_LANGUAGE, LANGUAGE_FRENCH)
-    groups = entry.data.get(CONF_STOP_GROUPS, [])
+    groups = entry.options.get(CONF_STOP_GROUPS) or entry.data.get(CONF_STOP_GROUPS, [])
 
     entities: list[StibMivbSensor] = []
 
@@ -50,7 +50,7 @@ async def async_setup_entry(
         skeletons = coordinator.static_lines.get(group["name_fr"], [])
         if not skeletons:
             # Fallback: use whatever the first coordinator fetch returned
-            skeletons = coordinator.data.get(group["name_fr"], [])
+            skeletons = (coordinator.data or {}).get(group["name_fr"], [])
         for skeleton in skeletons:
             entities.append(StibMivbSensor(coordinator, group, skeleton, language))
 
@@ -113,8 +113,9 @@ class StibMivbSensor(CoordinatorEntity[StibMivbCoordinator], SensorEntity):
 
         # Unique ID: domain + first_point_id + line + stop_slug + dest_slug
         # Includes stop name so two stops on the same line don't collide.
+        first_pid = self._point_ids[0] if self._point_ids else "unknown"
         self._attr_unique_id = (
-            f"{DOMAIN}_{self._point_ids[0]}_{self._line_id}_{stop_slug}_{dest_slug}"
+            f"{DOMAIN}_{first_pid}_{self._line_id}_{stop_slug}_{dest_slug}"
         )
 
         # Sensor name: "Line 54 – FOREST NATIONAL → FOREST (BERVOETS)"
@@ -131,7 +132,7 @@ class StibMivbSensor(CoordinatorEntity[StibMivbCoordinator], SensorEntity):
     @property
     def _current_passage(self) -> dict:
         """Find this sensor's passage in the latest coordinator data."""
-        passages = self.coordinator.data.get(self._name_fr, [])
+        passages = (self.coordinator.data or {}).get(self._name_fr, [])
         for p in passages:
             if p["line_id"] == self._line_id and (
                 p.get("dest_fr") == self._dest_fr

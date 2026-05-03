@@ -10,8 +10,6 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-import homeassistant.helpers.config_validation as cv
-
 from .api import StibMivbApiClient
 from .const import (
     CONF_API_KEY,
@@ -192,27 +190,24 @@ class StibMivbConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         config_entry: config_entries.ConfigEntry,
     ) -> StibMivbOptionsFlow:
         """Return the options flow."""
-        return StibMivbOptionsFlow(config_entry)
+        return StibMivbOptionsFlow()
 
 
 class StibMivbOptionsFlow(config_entries.OptionsFlow):
     """Options: add/remove stop groups, scan interval."""
 
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        """Initialise."""
-        self._config_entry = config_entry
-        self._configured_groups: list[dict] = list(
-            config_entry.data.get(CONF_STOP_GROUPS, [])
-        )
+    def __init__(self) -> None:
+        """Initialise — config_entry is available via self.config_entry once the flow starts."""
+        self._configured_groups: list[dict] | None = None
         self._client: StibMivbApiClient | None = None
         self._search_results: dict[str, dict] = {}
-        self._language: str = config_entry.data.get(CONF_LANGUAGE, LANGUAGE_FRENCH)
+        self._language: str = LANGUAGE_FRENCH
 
     async def _ensure_client(self) -> None:
         """Create and warm up the API client if not done yet."""
         if self._client is None:
             session = async_get_clientsession(self.hass)
-            api_key = self._config_entry.data.get(CONF_API_KEY, "")
+            api_key = self.config_entry.data.get(CONF_API_KEY, "")
             self._client = StibMivbApiClient(session, api_key)
             await self._client.load_catalogue()
 
@@ -220,6 +215,14 @@ class StibMivbOptionsFlow(config_entries.OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.FlowResult:
         """Options menu."""
+        # Initialize state from config_entry on first call (not available in __init__).
+        if self._configured_groups is None:
+            self._configured_groups = list(
+                self.config_entry.options.get(CONF_STOP_GROUPS)
+                or self.config_entry.data.get(CONF_STOP_GROUPS, [])
+            )
+            self._language = self.config_entry.data.get(CONF_LANGUAGE, LANGUAGE_FRENCH)
+
         if user_input is not None:
             action = user_input.get("action", "finish")
             if action == "add_stop":
@@ -235,7 +238,7 @@ class StibMivbOptionsFlow(config_entries.OptionsFlow):
                 },
             )
 
-        current_interval = self._config_entry.options.get(
+        current_interval = self.config_entry.options.get(
             CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL
         )
         schema = vol.Schema(
@@ -255,6 +258,9 @@ class StibMivbOptionsFlow(config_entries.OptionsFlow):
     ) -> config_entries.FlowResult:
         """Search for a stop by name."""
         errors: dict[str, str] = {}
+
+        if self._client is None:
+            await self._ensure_client()
 
         if user_input is not None:
             query = user_input.get(CONF_STOP_SEARCH, "").strip()

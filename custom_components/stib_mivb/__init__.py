@@ -4,15 +4,13 @@ from __future__ import annotations
 import logging
 from datetime import timedelta
 
-import aiohttp
-
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .api import StibMivbApiClient
+from .api import StibMivbApiClient, _normalize_point_id
 from .const import (
     CONF_API_KEY,
     CONF_SCAN_INTERVAL,
@@ -32,12 +30,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     api_key = entry.data.get(CONF_API_KEY, "")
     client = StibMivbApiClient(session, api_key)
 
-    # Verify connectivity
+    # Verify connectivity / API key validity.
+    # get_stop_details() catches all exceptions internally and returns {} on failure,
+    # so we check for an empty result regardless of whether it was a network or auth error.
     try:
         details = await client.get_stop_details("2935")
         if not details:
-            raise ConfigEntryNotReady("API key validation returned no data")
-    except aiohttp.ClientError as err:
+            raise ConfigEntryNotReady("Cannot connect to STIB/MIVB API or invalid API key")
+    except ConfigEntryNotReady:
+        raise
+    except Exception as err:
         raise ConfigEntryNotReady(f"Cannot connect to STIB/MIVB API: {err}") from err
 
     scan_interval = entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
@@ -98,43 +100,63 @@ class StibMivbCoordinator(DataUpdateCoordinator):
 
     async def async_build_static_lines(self) -> None:
         """
-        For each configured stop group, discover every line that serves any of
-        its point IDs via the stopsByLine static dataset.  Populates
-        self.static_lines so that sensor.py can create sensors for all lines
-        upfront, regardless of whether a vehicle is currently en route.
+        Discover every line serving any configured stop group and populate
+        self.static_lines so sensors exist for all lines upfront.
+
+        A single combined API call is made for ALL groups together, so startup
+        costs exactly 2 requests regardless of how many stop groups are configured.
+        The resulting _point_to_lines index covers all groups, which is also needed
+        for correct direction resolution during every subsequent refresh.
         """
-        groups = self.entry.data.get(CONF_STOP_GROUPS, [])
+        groups = self.entry.options.get(CONF_STOP_GROUPS) or self.entry.data.get(CONF_STOP_GROUPS, [])
+        if not groups:
+            return
+
+        # One combined call for all groups — populates client._point_to_lines
+        all_point_ids: list[str] = [
+            pid for group in groups for pid in group.get("point_ids", [])
+        ]
+        try:
+            await self.client.get_lines_for_points(all_point_ids)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("Could not build static lines: %s", err)
+            for group in groups:
+                self.static_lines[group["name_fr"]] = []
+            return
+
+        # Reconstruct per-group skeletons from the now-populated _point_to_lines index
+        pid_index: dict = getattr(self.client, "_point_to_lines", {})
+
         for group in groups:
             name_fr = group["name_fr"]
             point_ids = group.get("point_ids", [])
-            try:
-                lines = await self.client.get_lines_for_points(point_ids)
-                # Flatten to a list of passage skeletons
-                skeletons: list[dict] = []
-                for line_id, directions in lines.items():
-                    for d in directions:
-                        skeletons.append({
-                            "line_id": line_id,
-                            "dest_fr": d["dest_fr"],
-                            "dest_nl": d["dest_nl"],
-                            "direction": d["direction"],
-                            "minutes": None,
-                            "next_passage": None,
-                            "rt_dest_fr": None,
-                            "rt_dest_nl": None,
-                            "point_id": None,
-                        })
-                self.static_lines[name_fr] = skeletons
-                _LOGGER.debug(
-                    "Static lines for %s: %s",
-                    name_fr,
-                    [(s["line_id"], s["dest_fr"]) for s in skeletons],
-                )
-            except Exception as err:  # noqa: BLE001
-                _LOGGER.warning(
-                    "Could not build static lines for %s: %s", name_fr, err
-                )
-                self.static_lines[name_fr] = []
+            seen: set[tuple[str, str]] = set()
+            skeletons: list[dict] = []
+
+            for pid in point_ids:
+                for lookup in {pid, _normalize_point_id(pid)}:
+                    for entry in pid_index.get(lookup, []):
+                        key = (entry["line_id"], entry["direction"])
+                        if key not in seen:
+                            seen.add(key)
+                            skeletons.append({
+                                "line_id": entry["line_id"],
+                                "dest_fr": entry["dest_fr"],
+                                "dest_nl": entry["dest_nl"],
+                                "direction": entry["direction"],
+                                "minutes": None,
+                                "next_passage": None,
+                                "rt_dest_fr": None,
+                                "rt_dest_nl": None,
+                                "point_id": None,
+                            })
+
+            self.static_lines[name_fr] = skeletons
+            _LOGGER.debug(
+                "Static lines for %s: %s",
+                name_fr,
+                [(s["line_id"], s["dest_fr"]) for s in skeletons],
+            )
 
     async def _async_update_data(self) -> dict:
         """
@@ -161,15 +183,23 @@ class StibMivbCoordinator(DataUpdateCoordinator):
             ...
           ]
         """
-        groups = self.entry.data.get(CONF_STOP_GROUPS, [])
+        groups = self.entry.options.get(CONF_STOP_GROUPS) or self.entry.data.get(CONF_STOP_GROUPS, [])
         data: dict = {}
 
-        # Single bulk fetch for the entire network — one API call per refresh.
+        # Collect all monitored point IDs so the API call is filtered server-side.
+        # This reduces the response from ~1 MB (full network) to a few KB.
+        all_point_ids: list[str] = [
+            pid
+            for group in groups
+            for pid in group.get("point_ids", [])
+        ]
+
         try:
-            await self.client.refresh_waiting_times_cache()
+            await self.client.refresh_waiting_times_cache(point_ids=all_point_ids)
         except Exception as err:  # noqa: BLE001
-            _LOGGER.warning("WaitingTimes bulk refresh failed: %s", err)
-            # Keep going — per-group filtering will use the previous cache
+            if not hasattr(self.client, "_rt_cache"):
+                raise UpdateFailed(f"WaitingTimes bulk refresh failed: {err}") from err
+            _LOGGER.warning("WaitingTimes bulk refresh failed, using previous cache: %s", err)
 
         for group in groups:
             name_fr = group["name_fr"]

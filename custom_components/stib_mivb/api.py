@@ -170,30 +170,42 @@ class StibMivbApiClient:
 
     # ── Waiting times ────────────────────────────────────────────────────────
 
-    async def refresh_waiting_times_cache(self) -> None:
+    async def refresh_waiting_times_cache(self, point_ids: list[str] | None = None) -> None:
         """
-        Download the full real-time WaitingTimes dataset (all lines, all stops)
-        in a single paginated fetch and store it in self._rt_cache.
+        Download real-time WaitingTimes data and store it in self._rt_cache.
 
-        This is called once per coordinator refresh cycle instead of making one
-        request per line or per point ID.  All per-stop filtering is then done
-        client-side against this cache — so the total API cost is 1 request per
-        refresh regardless of how many stops or lines are monitored.
+        When point_ids is provided the request is filtered server-side
+        (``where=pointid in (id1, id2, ...)``) so only the stops we monitor
+        are returned — typically a few KB instead of the ~1 MB full-network
+        response.  This is the key optimisation to stay within API rate limits.
+
+        Falls back to downloading the full dataset when point_ids is empty/None.
         """
-        PAGE = 1000  # maximise rows per request to minimise round-trips
+        PAGE = 1000
         offset = 0
-        cache: dict[str, list[dict]] = {}  # { bare_point_id: [row, ...] }
+        cache: dict[str, list[dict]] = {}
 
-        _LOGGER.debug("Refreshing full WaitingTimes cache…")
+        params_base: dict = {"limit": PAGE}
+        if point_ids:
+            bare_ids = sorted({_normalize_point_id(p) for p in point_ids if p})
+            if bare_ids:
+                params_base["where"] = f"pointid in ({', '.join(bare_ids)})"
+                _LOGGER.debug(
+                    "Fetching WaitingTimes for %d point IDs: %s", len(bare_ids), bare_ids
+                )
+            else:
+                _LOGGER.debug("Fetching full WaitingTimes dataset (no point IDs provided)")
+        else:
+            _LOGGER.debug("Fetching full WaitingTimes dataset")
 
         while True:
             try:
                 data = await self._get(
                     API_WAITING_TIMES,
-                    params={"limit": PAGE, "offset": offset},
+                    params={**params_base, "offset": offset},
                 )
             except Exception as err:  # noqa: BLE001
-                _LOGGER.warning("WaitingTimes bulk fetch failed at offset %d: %s", offset, err)
+                _LOGGER.warning("WaitingTimes fetch failed at offset %d: %s", offset, err)
                 break
 
             results = data.get("results", [])
@@ -202,17 +214,16 @@ class StibMivbApiClient:
             for row in results:
                 pid = str(row.get("pointid", ""))
                 bare = _normalize_point_id(pid)
-                # Index under both the returned ID and its bare form
                 for key in {pid, bare}:
                     cache.setdefault(key, []).append(row)
 
             offset += len(results)
-            _LOGGER.debug("WaitingTimes cache: %d/%d rows loaded", offset, total)
+            _LOGGER.debug("WaitingTimes: %d/%d rows loaded", offset, total)
 
             if not results or offset >= total:
                 break
 
-        _LOGGER.debug("WaitingTimes cache complete — %d point IDs indexed", len(cache))
+        _LOGGER.debug("WaitingTimes cache ready — %d point IDs indexed", len(cache))
         self._rt_cache: dict[str, list[dict]] = cache
 
     def get_waiting_times_for_group(
@@ -299,63 +310,68 @@ class StibMivbApiClient:
 
     async def get_lines_for_points(self, point_ids: list[str]) -> dict[str, list[dict]]:
         """
-        Discover all lines that serve any of the given point IDs by scanning
-        the full stopsByLine dataset.
+        Discover all lines serving the given point IDs using two targeted calls
+        instead of downloading the full stopsByLine dataset.
 
-        The stopsByLine endpoint does not support filtering by point ID, so we
-        fetch ALL lines (paginated) once and build a local index.  Results are
-        cached on the client instance.
+        Step 1 — WaitingTimes (filtered by point_ids) → extract which lineids
+                  are currently active at our stops.
+        Step 2 — stopsByLine (filtered by lineids) → fetch canonical destinations
+                  and direction for only those lines.
+
+        Side-effect: populates self._point_to_lines for direction resolution in
+        get_waiting_times_for_group().
 
         Returns:
           {
             "54": [
               {"dest_fr": "FOREST (BERVOETS)", "dest_nl": "VORST (BERVOETS)", "direction": "Suburb"},
-              {"dest_fr": "TRONE",              "dest_nl": "TROON",            "direction": "City"},
+              {"dest_fr": "TRONE",             "dest_nl": "TROON",            "direction": "City"},
             ],
-            "82": [...],
             ...
           }
-          — containing only lines whose route includes at least one of point_ids.
+          If no vehicles are active (e.g. at night), returns {} and logs a warning;
+          sensors will be created from the first real-time coordinator update instead.
         """
-        import asyncio
+        bare_ids = sorted({_normalize_point_id(p) for p in point_ids if p})
+        all_ids: set[str] = set(point_ids) | set(bare_ids)
 
-        # Build the full point→lines index if not already done
-        if not hasattr(self, "_point_to_lines"):
+        # ── Step 1: discover which lineids serve our stops ────────────────────
+        lineids: set[str] = set()
+        try:
+            data = await self._get(
+                API_WAITING_TIMES,
+                params={"limit": 1000, "where": f"pointid in ({', '.join(bare_ids)})"},
+            )
+            for row in data.get("results", []):
+                lid = str(row.get("lineid", ""))
+                if lid:
+                    lineids.add(lid)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("Could not discover line IDs for stops %s: %s", bare_ids, err)
+
+        if not lineids:
+            _LOGGER.warning(
+                "No active vehicles found for stops %s — static skeleton will be empty. "
+                "Sensors will appear after the first successful real-time update.",
+                bare_ids,
+            )
             self._point_to_lines: dict[str, list[dict]] = {}
-            await self._build_point_to_lines_index()
+            return {}
 
+        # ── Step 2: fetch stopsByLine filtered to discovered lines ────────────
+        line_filter = f"lineid in ({', '.join(sorted(lineids))})"
+        _LOGGER.debug("Fetching stopsByLine for lines %s", sorted(lineids))
+
+        index: dict[str, list[dict]] = {}
         result: dict[str, list[dict]] = {}
-        for pid in point_ids:
-            for entry in self._point_to_lines.get(pid, []):
-                line_id = entry["line_id"]
-                if line_id not in result:
-                    result[line_id] = []
-                # Avoid duplicates
-                direction_entry = {
-                    "dest_fr": entry["dest_fr"],
-                    "dest_nl": entry["dest_nl"],
-                    "direction": entry["direction"],
-                }
-                if direction_entry not in result[line_id]:
-                    result[line_id].append(direction_entry)
-
-        return result
-
-    async def _build_point_to_lines_index(self) -> None:
-        """
-        Download all entries from stopsByLine (paginated) and build
-        self._point_to_lines: { point_id: [{line_id, dest_fr, dest_nl, direction}] }
-        """
-        _LOGGER.debug("Building point→lines index from stopsByLine…")
         PAGE = 100
         offset = 0
-        index: dict[str, list[dict]] = {}
 
         while True:
             try:
                 data = await self._get(
                     API_STOPS_BY_LINE,
-                    params={"limit": PAGE, "offset": offset},
+                    params={"limit": PAGE, "offset": offset, "where": line_filter},
                 )
             except Exception as err:  # noqa: BLE001
                 _LOGGER.warning("stopsByLine fetch failed at offset %d: %s", offset, err)
@@ -374,33 +390,51 @@ class StibMivbApiClient:
                 if not isinstance(points, list):
                     continue
 
+                entry = {
+                    "line_id": line_id,
+                    "dest_fr": dest_fr,
+                    "dest_nl": dest_nl,
+                    "direction": direction,
+                }
+
                 for pt in points:
                     pid = str(pt.get("id", "")) if isinstance(pt, dict) else str(pt)
                     if not pid:
                         continue
-                    entry = {
-                        "line_id": line_id,
-                        "dest_fr": dest_fr,
-                        "dest_nl": dest_nl,
-                        "direction": direction,
-                    }
-                    # Index under the original ID (e.g. "5153F") AND the bare
-                    # numeric form ("5153") so that lookups work regardless of
-                    # which variant the caller has.
-                    for key in {pid, _normalize_point_id(pid)}:
+                    bare_pid = _normalize_point_id(pid)
+
+                    # Full point→lines index for direction resolution (all stops on these lines)
+                    for key in {pid, bare_pid}:
                         if key not in index:
                             index[key] = []
                         if entry not in index[key]:
                             index[key].append(entry)
 
+                    # Result dict: only for our configured stops
+                    if pid in all_ids or bare_pid in all_ids:
+                        if line_id not in result:
+                            result[line_id] = []
+                        direction_entry = {
+                            "dest_fr": dest_fr,
+                            "dest_nl": dest_nl,
+                            "direction": direction,
+                        }
+                        if direction_entry not in result[line_id]:
+                            result[line_id].append(direction_entry)
+
             offset += len(results)
-            _LOGGER.debug("stopsByLine index: %d/%d rows processed", offset, total)
+            _LOGGER.debug("stopsByLine: %d/%d rows processed", offset, total)
 
             if not results or offset >= total:
                 break
 
-        _LOGGER.debug("Point→lines index built: %d point IDs indexed", len(index))
+        _LOGGER.debug(
+            "Lines for stops %s: %s",
+            bare_ids,
+            {lid: [d["direction"] for d in dirs] for lid, dirs in result.items()},
+        )
         self._point_to_lines = index
+        return result
 
     # ── Canonical line destinations ──────────────────────────────────────────
 
@@ -477,7 +511,12 @@ class StibMivbApiClient:
         if not iso_timestamp:
             return None
         try:
+            from datetime import timezone
             arrival = datetime.fromisoformat(iso_timestamp)
+            # If the API returns a naive timestamp, treat it as UTC to avoid
+            # a TypeError when mixing aware/naive datetimes in subtraction.
+            if arrival.tzinfo is None:
+                arrival = arrival.replace(tzinfo=timezone.utc)
             now = datetime.now(tz=arrival.tzinfo)
             delta = (arrival - now).total_seconds()
             return max(0, int(delta // 60))
