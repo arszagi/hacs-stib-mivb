@@ -2,5 +2,6 @@
   "name": "STIB/MIVB",
   "content_in_root": false,
   "render_readme": true,
-  "filename": "stib_mivb.zip"
+  "filename": "stib_mivb.zip",
+  "icon": "https://raw.githubusercontent.com/arszagi/hacs-stib-mivb/main/custom_components/stib_mivb/icon.png"
 }
