@@ -12,7 +12,7 @@ Monitor real-time waiting times for the **Brussels public transport network (STI
 - **Grouped stops** — all physical platforms of the same stop name are handled as one
 - **Bilingual** — French or Dutch display language
 - **Official STIB line colours** — loaded from the GTFS feed at install time
-- **Vehicle type detection** — bus / tram / metro per line
+- **Vehicle type detection** — bus / tram / metro per line, with label B / T / M
 - **Service messages** — "Ne pas embarquer", "Ligne déviée", "Temps théorique"
 - **Optimised API usage** — only your monitored stops are fetched (~2 KB per refresh instead of ~1 MB)
 - **Configurable polling interval** (default 30 s, min 10 s)
@@ -77,15 +77,13 @@ Each sensor is named **`sensor.line_<LINE>_<STOP>_<DESTINATION>`** and belongs t
 | `line_type` | string | `"bus"`, `"tram"` or `"metro"` |
 | `line_type_label` | string | `"B"`, `"T"` or `"M"` |
 | `line_color` | string | Official STIB hex colour e.g. `"#A12944"` |
-| `line_text_color` | string | Contrasting text colour e.g. `"#FFFFFF"` |
+| `line_text_color` | string | Contrasting text colour — `#000000` on light backgrounds, `#FFFFFF` on dark |
 | `stop_name_fr` | string | Stop name in French |
 | `stop_name_nl` | string | Stop name in Dutch |
 | `latitude` / `longitude` | float | Stop GPS coordinates |
 | `point_ids` | list | Physical platform IDs grouped under this stop |
 
 ### Service messages
-
-The `message` attribute carries official STIB service messages when present.
 
 | `message` value | `is_boarding` | Meaning |
 |---|---|---|
@@ -110,104 +108,125 @@ Go to **Settings → Devices & Services → STIB/MIVB → Configure** to:
 
 ## Lovelace examples
 
-### Basic entity card
+### Required custom card
+
+The examples below use **[Mushroom](https://github.com/piitaya/lovelace-mushroom)**, a popular card collection available in HACS.
+
+> HACS → Frontend → search **"Mushroom"** → Download → Restart HA
+
+---
+
+### Grid — multiple lines at the same stop
+
+![Preview](docs/lovelace-preview.png)
+
+Each card shows the **official STIB line colour** as background, the **line number** in the matching text colour (black on yellow, white on dark), and a **B / T / M badge** in red indicating the vehicle type. The secondary line displays the message when STIB sends one (e.g. "Ne pas embarquer"), otherwise shows the waiting times.
+
+The line number square is generated as an inline SVG — no image files required.
 
 ```yaml
-type: entity
-entity: sensor.line_25_uccle_boondael_gare
-name: "Line 25 → Boondael"
-icon: mdi:tram
-```
-
-### Mushroom template card — with message fallback, no image needed
-
-```yaml
-type: custom:mushroom-template-card
-entity: sensor.line_25_uccle_boondael_gare
-icon: >-
-  {% set t = state_attr('sensor.line_25_uccle_boondael_gare', 'line_type') %}
-  {{ 'mdi:subway' if t == 'metro' else 'mdi:tram' if t == 'tram' else 'mdi:bus' }}
-icon_color: "{{ state_attr('sensor.line_25_uccle_boondael_gare', 'line_color') }}"
-badge_text: "{{ state_attr('sensor.line_25_uccle_boondael_gare', 'line_type_label') }}"
-badge_color: "{{ state_attr('sensor.line_25_uccle_boondael_gare', 'line_color') }}"
-primary: "25 – {{ state_attr('sensor.line_25_uccle_boondael_gare', 'destination') }}"
-secondary: >-
-  {% set msg = state_attr('sensor.line_25_uccle_boondael_gare', 'message') %}
-  {% if msg %}
-    {{ msg }}
-  {% else %}
-    {{ states('sensor.line_25_uccle_boondael_gare') }} min
-    ( {{ state_attr('sensor.line_25_uccle_boondael_gare', 'next_passage_minutes') }} min )
-  {% endif %}
-color: "{{ state_attr('sensor.line_25_uccle_boondael_gare', 'line_color') }}"
-vertical: true
-```
-
-### Grid of stops — multiple lines at the same stop
-
-```yaml
-type: grid
-columns: 3
 square: true
+type: grid
 cards:
   - type: custom:mushroom-template-card
     entity: sensor.line_21_michel_ange_maes
-    icon: mdi:bus
-    icon_color: "{{ state_attr('sensor.line_21_michel_ange_maes', 'line_color') }}"
+    picture: >-
+      {% set color = state_attr('sensor.line_21_michel_ange_maes', 'line_color') | replace('#', '%23') %}
+      {% set tcolor = state_attr('sensor.line_21_michel_ange_maes', 'line_text_color') | replace('#', '%23') %}
+      {% set num = state_attr('sensor.line_21_michel_ange_maes', 'line_id') %}
+      {% set size = 38 if num | length <= 2 else 26 %}
+      data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect x='15' y='15' width='70' height='70' fill='{{ color }}' rx='10'/><text x='50' y='50' font-size='{{ size }}' font-family='Arial,sans-serif' text-anchor='middle' dominant-baseline='central' fill='{{ tcolor }}' font-weight='bold'>{{ num }}</text></svg>
     badge_text: "{{ state_attr('sensor.line_21_michel_ange_maes', 'line_type_label') }}"
-    badge_color: "{{ state_attr('sensor.line_21_michel_ange_maes', 'line_color') }}"
-    primary: "21 – {{ state_attr('sensor.line_21_michel_ange_maes', 'destination') }}"
+    badge_color: red
+    primary: "{{ state_attr('sensor.line_21_michel_ange_maes', 'destination') }}"
     secondary: >-
       {% set msg = state_attr('sensor.line_21_michel_ange_maes', 'message') %}
       {% if msg %}{{ msg }}{% else %}
       {{ states('sensor.line_21_michel_ange_maes') }} min
       ( {{ state_attr('sensor.line_21_michel_ange_maes', 'next_passage_minutes') }} min )
       {% endif %}
+    color: "{{ state_attr('sensor.line_21_michel_ange_maes', 'line_color') }}"
+    features_position: bottom
     vertical: true
 
   - type: custom:mushroom-template-card
     entity: sensor.line_63_michel_ange_cimetiere_de_bruxelles
-    icon: mdi:bus
-    icon_color: "{{ state_attr('sensor.line_63_michel_ange_cimetiere_de_bruxelles', 'line_color') }}"
+    picture: >-
+      {% set color = state_attr('sensor.line_63_michel_ange_cimetiere_de_bruxelles', 'line_color') | replace('#', '%23') %}
+      {% set tcolor = state_attr('sensor.line_63_michel_ange_cimetiere_de_bruxelles', 'line_text_color') | replace('#', '%23') %}
+      {% set num = state_attr('sensor.line_63_michel_ange_cimetiere_de_bruxelles', 'line_id') %}
+      {% set size = 38 if num | length <= 2 else 26 %}
+      data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect x='15' y='15' width='70' height='70' fill='{{ color }}' rx='10'/><text x='50' y='50' font-size='{{ size }}' font-family='Arial,sans-serif' text-anchor='middle' dominant-baseline='central' fill='{{ tcolor }}' font-weight='bold'>{{ num }}</text></svg>
     badge_text: "{{ state_attr('sensor.line_63_michel_ange_cimetiere_de_bruxelles', 'line_type_label') }}"
-    badge_color: "{{ state_attr('sensor.line_63_michel_ange_cimetiere_de_bruxelles', 'line_color') }}"
-    primary: "63 – {{ state_attr('sensor.line_63_michel_ange_cimetiere_de_bruxelles', 'destination') }}"
+    badge_color: red
+    primary: "{{ state_attr('sensor.line_63_michel_ange_cimetiere_de_bruxelles', 'destination') }}"
     secondary: >-
       {% set msg = state_attr('sensor.line_63_michel_ange_cimetiere_de_bruxelles', 'message') %}
       {% if msg %}{{ msg }}{% else %}
       {{ states('sensor.line_63_michel_ange_cimetiere_de_bruxelles') }} min
       ( {{ state_attr('sensor.line_63_michel_ange_cimetiere_de_bruxelles', 'next_passage_minutes') }} min )
       {% endif %}
+    color: "{{ state_attr('sensor.line_63_michel_ange_cimetiere_de_bruxelles', 'line_color') }}"
+    features_position: bottom
     vertical: true
+
+  - type: custom:mushroom-template-card
+    entity: sensor.line_79_michel_ange_kraainem
+    picture: >-
+      {% set color = state_attr('sensor.line_79_michel_ange_kraainem', 'line_color') | replace('#', '%23') %}
+      {% set tcolor = state_attr('sensor.line_79_michel_ange_kraainem', 'line_text_color') | replace('#', '%23') %}
+      {% set num = state_attr('sensor.line_79_michel_ange_kraainem', 'line_id') %}
+      {% set size = 38 if num | length <= 2 else 26 %}
+      data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect x='15' y='15' width='70' height='70' fill='{{ color }}' rx='10'/><text x='50' y='50' font-size='{{ size }}' font-family='Arial,sans-serif' text-anchor='middle' dominant-baseline='central' fill='{{ tcolor }}' font-weight='bold'>{{ num }}</text></svg>
+    badge_text: "{{ state_attr('sensor.line_79_michel_ange_kraainem', 'line_type_label') }}"
+    badge_color: red
+    primary: "{{ state_attr('sensor.line_79_michel_ange_kraainem', 'destination') }}"
+    secondary: >-
+      {% set msg = state_attr('sensor.line_79_michel_ange_kraainem', 'message') %}
+      {% if msg %}{{ msg }}{% else %}
+      {{ states('sensor.line_79_michel_ange_kraainem') }} min
+      ( {{ state_attr('sensor.line_79_michel_ange_kraainem', 'next_passage_minutes') }} min )
+      {% endif %}
+    color: "{{ state_attr('sensor.line_79_michel_ange_kraainem', 'line_color') }}"
+    features_position: bottom
+    vertical: true
+
+columns: 3
+grid_options:
+  rows: auto
 ```
 
-### Automation — alert when bus is about to arrive and boarding
+> **How the line number square works:** the `picture` field is generated as an inline SVG data URL — a coloured rounded rectangle inscribed inside the circle that Mushroom applies to pictures. `line_color` sets the background, `line_text_color` sets the number colour (black on light backgrounds like line 21 yellow, white on dark backgrounds like line 79 blue). No external image files are needed.
+
+---
+
+### Automation — alert when a vehicle is arriving and will board passengers
 
 ```yaml
 automation:
-  alias: "Alert: Bus 25 arriving in less than 3 min"
+  alias: "Alert: Bus 21 arriving in less than 3 min"
   trigger:
     - platform: numeric_state
-      entity_id: sensor.line_25_uccle_boondael_gare
+      entity_id: sensor.line_21_michel_ange_maes
       below: 3
   condition:
     - condition: template
       value_template: >
-        {{ state_attr('sensor.line_25_uccle_boondael_gare', 'is_boarding') == true }}
+        {{ state_attr('sensor.line_21_michel_ange_maes', 'is_boarding') == true }}
   action:
     - service: notify.mobile_app
       data:
-        message: "Bus 25 arrives in {{ states('sensor.line_25_uccle_boondael_gare') }} min!"
+        message: "Bus 21 arrives in {{ states('sensor.line_21_michel_ange_maes') }} min!"
 ```
 
-### Template sensor — display next passage time in human-readable format
+### Template sensor — next passage as a clock time
 
 ```yaml
 template:
   - sensor:
-      - name: "Line 25 next passage"
+      - name: "Line 21 next passage time"
         state: >
-          {% set ts = state_attr('sensor.line_25_uccle_boondael_gare', 'next_passage') %}
+          {% set ts = state_attr('sensor.line_21_michel_ange_maes', 'next_passage') %}
           {% if ts %}{{ as_timestamp(ts) | timestamp_custom('%H:%M') }}{% else %}—{% endif %}
 ```
 
