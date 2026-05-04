@@ -396,7 +396,7 @@ class StibMivbApiClient:
                 if not isinstance(points, list):
                     continue
 
-                        valid_pts = [p for p in points if isinstance(p, dict)]
+                valid_pts = [p for p in points if isinstance(p, dict)]
                 entry = {
                     "line_id": line_id,
                     "dest_fr": dest_fr,
