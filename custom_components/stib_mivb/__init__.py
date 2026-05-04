@@ -201,6 +201,12 @@ class StibMivbCoordinator(DataUpdateCoordinator):
                 raise UpdateFailed(f"WaitingTimes bulk refresh failed: {err}") from err
             _LOGGER.warning("WaitingTimes bulk refresh failed, using previous cache: %s", err)
 
+        all_line_ids = list({s["line_id"] for skels in self.static_lines.values() for s in skels})
+        try:
+            await self.client.refresh_vehicle_positions_cache(line_ids=all_line_ids)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("VehiclePositions refresh failed: %s", err)
+
         for group in groups:
             name_fr = group["name_fr"]
             point_ids = group.get("point_ids", [])
@@ -268,6 +274,11 @@ class StibMivbCoordinator(DataUpdateCoordinator):
                         "point_id": p.get("point_id"),
                     }
 
-            data[name_fr] = list(skeleton.values())
+            passages = list(skeleton.values())
+            for item in passages:
+                item["vehicle_distance_m"] = self.client.get_vehicle_distance_for_stop(
+                    point_ids, item["line_id"]
+                )
+            data[name_fr] = passages
 
         return data

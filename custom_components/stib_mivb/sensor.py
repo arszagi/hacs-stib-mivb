@@ -15,13 +15,16 @@ from . import StibMivbCoordinator
 from .const import (
     ATTR_DESTINATION,
     ATTR_DIRECTION,
+    ATTR_IS_BOARDING,
     ATTR_LATITUDE,
     ATTR_LINE_ID,
     ATTR_LONGITUDE,
+    ATTR_MESSAGE,
     ATTR_NEXT_PASSAGE,
     ATTR_POINT_IDS,
     ATTR_STOP_NAME_FR,
     ATTR_STOP_NAME_NL,
+    ATTR_VEHICLE_DISTANCE,
     CONF_LANGUAGE,
     CONF_STOP_GROUPS,
     DOMAIN,
@@ -41,20 +44,38 @@ async def async_setup_entry(
     language = entry.data.get(CONF_LANGUAGE, LANGUAGE_FRENCH)
     groups = entry.options.get(CONF_STOP_GROUPS) or entry.data.get(CONF_STOP_GROUPS, [])
 
-    entities: list[StibMivbSensor] = []
+    entities: list[SensorEntity] = []
 
     for group in groups:
-        # Use the static skeleton (all lines from stopsByLine) so that sensors
-        # are created for every line serving this stop, even when no vehicle is
-        # currently en route.  Real-time data is merged in by the coordinator.
         skeletons = coordinator.static_lines.get(group["name_fr"], [])
         if not skeletons:
-            # Fallback: use whatever the first coordinator fetch returned
             skeletons = (coordinator.data or {}).get(group["name_fr"], [])
+
+        # Wait time sensors — one per (line, direction)
         for skeleton in skeletons:
             entities.append(StibMivbSensor(coordinator, group, skeleton, language))
 
+        # Vehicle distance sensors — one per line (direction-agnostic)
+        seen_lines: set[str] = set()
+        for skeleton in skeletons:
+            line_id = skeleton["line_id"]
+            if line_id not in seen_lines:
+                seen_lines.add(line_id)
+                entities.append(StibMivbVehicleSensor(coordinator, group, skeleton, language))
+
     async_add_entities(entities, update_before_add=False)
+
+
+def _slug(text: str) -> str:
+    return (
+        text.lower()
+        .replace(" ", "_")
+        .replace("(", "")
+        .replace(")", "")
+        .replace("-", "_")
+        .replace("/", "_")
+        .replace("'", "")
+    )
 
 
 class StibMivbSensor(CoordinatorEntity[StibMivbCoordinator], SensorEntity):
@@ -76,11 +97,8 @@ class StibMivbSensor(CoordinatorEntity[StibMivbCoordinator], SensorEntity):
         passage: dict,
         language: str,
     ) -> None:
-        """Initialise the sensor."""
         super().__init__(coordinator)
         self._language = language
-        self._group = group
-
         self._name_fr: str = group["name_fr"]
         self._name_nl: str = group["name_nl"]
         self._point_ids: list[str] = group.get("point_ids", [])
@@ -88,40 +106,18 @@ class StibMivbSensor(CoordinatorEntity[StibMivbCoordinator], SensorEntity):
         self._longitude = group.get("longitude")
 
         self._line_id: str = passage["line_id"]
-        # Use canonical destinations for stable IDs; rt_dest for fallback display
         self._dest_fr: str = passage.get("dest_fr") or passage.get("rt_dest_fr", "")
         self._dest_nl: str = passage.get("dest_nl") or passage.get("rt_dest_nl", "")
 
-        # Display name: use preferred language
         stop_display = self._name_fr if language == LANGUAGE_FRENCH else self._name_nl
         dest_display = self._dest_fr if language == LANGUAGE_FRENCH else self._dest_nl
 
-        def _slug(text: str) -> str:
-            """Convert a name to a safe lowercase slug."""
-            return (
-                text.lower()
-                .replace(" ", "_")
-                .replace("(", "")
-                .replace(")", "")
-                .replace("-", "_")
-                .replace("/", "_")
-                .replace("'", "")
-            )
-
         stop_slug = _slug(self._name_fr)
         dest_slug = _slug(self._dest_fr)
-
-        # Unique ID: domain + first_point_id + line + stop_slug + dest_slug
-        # Includes stop name so two stops on the same line don't collide.
         first_pid = self._point_ids[0] if self._point_ids else "unknown"
-        self._attr_unique_id = (
-            f"{DOMAIN}_{first_pid}_{self._line_id}_{stop_slug}_{dest_slug}"
-        )
 
-        # Sensor name: "Line 54 – FOREST NATIONAL → FOREST (BERVOETS)"
+        self._attr_unique_id = f"{DOMAIN}_{first_pid}_{self._line_id}_{stop_slug}_{dest_slug}"
         self._attr_name = f"Line {self._line_id} – {stop_display} → {dest_display}"
-
-        # Device: one per stop group name
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, f"stop_group_{self._name_fr}")},
             name=stop_display,
@@ -131,7 +127,6 @@ class StibMivbSensor(CoordinatorEntity[StibMivbCoordinator], SensorEntity):
 
     @property
     def _current_passage(self) -> dict:
-        """Find this sensor's passage in the latest coordinator data."""
         passages = (self.coordinator.data or {}).get(self._name_fr, [])
         for p in passages:
             if p["line_id"] == self._line_id and (
@@ -143,23 +138,17 @@ class StibMivbSensor(CoordinatorEntity[StibMivbCoordinator], SensorEntity):
 
     @property
     def native_value(self) -> int | None:
-        """Return minutes until next arrival."""
         return self._current_passage.get("minutes")
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Return rich attributes."""
         p = self._current_passage
-        dest = (
-            self._dest_fr if self._language == LANGUAGE_FRENCH
-            else self._dest_nl
-        )
-        current_passage_ts = p.get("current_passage")
+        dest = self._dest_fr if self._language == LANGUAGE_FRENCH else self._dest_nl
         next_passage_ts = p.get("next_passage")
         next_passage_minutes = self.coordinator.client._minutes_until(next_passage_ts)
 
         return {
-            "current_passage": current_passage_ts,
+            "current_passage": p.get("current_passage"),
             ATTR_NEXT_PASSAGE: next_passage_ts,
             "next_passage_minutes": next_passage_minutes,
             ATTR_LATITUDE: self._latitude,
@@ -169,9 +158,73 @@ class StibMivbSensor(CoordinatorEntity[StibMivbCoordinator], SensorEntity):
             ATTR_DESTINATION: dest,
             ATTR_LINE_ID: self._line_id,
             ATTR_POINT_IDS: self._point_ids,
+            ATTR_MESSAGE: p.get("message", ""),
+            ATTR_IS_BOARDING: p.get("is_boarding", True),
+            ATTR_VEHICLE_DISTANCE: p.get("vehicle_distance_m"),
         }
 
     @property
     def available(self) -> bool:
-        """Sensor is available when coordinator last update succeeded."""
+        return self.coordinator.last_update_success
+
+
+class StibMivbVehicleSensor(CoordinatorEntity[StibMivbCoordinator], SensorEntity):
+    """
+    Sensor showing the distance in metres of the nearest vehicle of a line
+    currently at one of the stop's platforms.
+
+    Device  = stop name  (e.g. "FOREST NATIONAL")
+    Sensor  = "Line 54 – FOREST NATIONAL [vehicle]"
+    """
+
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = "m"
+    _attr_icon = "mdi:map-marker-distance"
+
+    def __init__(
+        self,
+        coordinator: StibMivbCoordinator,
+        group: dict,
+        passage: dict,
+        language: str,
+    ) -> None:
+        super().__init__(coordinator)
+        self._language = language
+        self._name_fr: str = group["name_fr"]
+        self._name_nl: str = group["name_nl"]
+        self._point_ids: list[str] = group.get("point_ids", [])
+        self._line_id: str = passage["line_id"]
+
+        stop_display = self._name_fr if language == LANGUAGE_FRENCH else self._name_nl
+        stop_slug = _slug(self._name_fr)
+        first_pid = self._point_ids[0] if self._point_ids else "unknown"
+
+        self._attr_unique_id = f"{DOMAIN}_{first_pid}_{self._line_id}_{stop_slug}_vehicle"
+        self._attr_name = f"Line {self._line_id} – {stop_display} [vehicle]"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, f"stop_group_{self._name_fr}")},
+            name=stop_display,
+            manufacturer="STIB/MIVB",
+            model=f"Stop group – {', '.join(self._point_ids)}",
+        )
+
+    @property
+    def native_value(self) -> int | None:
+        passages = (self.coordinator.data or {}).get(self._name_fr, [])
+        for p in passages:
+            if p["line_id"] == self._line_id:
+                return p.get("vehicle_distance_m")
+        return None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return {
+            ATTR_LINE_ID: self._line_id,
+            ATTR_STOP_NAME_FR: self._name_fr,
+            ATTR_STOP_NAME_NL: self._name_nl,
+            ATTR_POINT_IDS: self._point_ids,
+        }
+
+    @property
+    def available(self) -> bool:
         return self.coordinator.last_update_success

@@ -18,6 +18,7 @@ API_BASE = "https://api-management-opendata-production.azure-api.net/api/dataset
 API_STOPS_BY_LINE = f"{API_BASE}/static/stopsByLine"
 API_STOP_DETAILS = f"{API_BASE}/static/StopDetails"
 API_WAITING_TIMES = f"{API_BASE}/rt/WaitingTimes"
+API_VEHICLE_POSITIONS = f"{API_BASE}/rt/VehiclePositions"
 
 API_KEY_HEADER = "bmc-partner-key"
 
@@ -30,3 +31,6 @@ ATTR_DIRECTION = "direction"
 ATTR_DESTINATION = "destination"
 ATTR_LINE_ID = "line_id"
 ATTR_POINT_IDS = "point_ids"
+ATTR_MESSAGE = "message"
+ATTR_IS_BOARDING = "is_boarding"
+ATTR_VEHICLE_DISTANCE = "vehicle_distance_m"

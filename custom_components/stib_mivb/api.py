@@ -12,6 +12,7 @@ from .const import (
     API_KEY_HEADER,
     API_STOP_DETAILS,
     API_STOPS_BY_LINE,
+    API_VEHICLE_POSITIONS,
     API_WAITING_TIMES,
     LANGUAGE_FRENCH,
 )
@@ -277,6 +278,10 @@ class StibMivbApiClient:
             minutes = self._minutes_until(expected)
             next_passage = passing_times[1].get("expectedArrivalTime") if len(passing_times) > 1 else None
 
+            message_obj = first.get("message", {})
+            message_fr = message_obj.get("fr", "") if isinstance(message_obj, dict) else ""
+            is_boarding = message_fr != "Ne pas embarquer"
+
             # Resolve direction from the static index
             direction = ""
             for lookup_pid in (row_pid, _normalize_point_id(row_pid)):
@@ -302,6 +307,8 @@ class StibMivbApiClient:
                     "current_passage": expected,
                     "next_passage": next_passage,
                     "point_id": row_pid,
+                    "message": message_fr,
+                    "is_boarding": is_boarding,
                 }
 
         return list(merged.values())
@@ -502,6 +509,65 @@ class StibMivbApiClient:
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Could not fetch details for stop %s: %s", stop_id, err)
             return {}
+
+    # ── Vehicle positions ─────────────────────────────────────────────────────
+
+    async def refresh_vehicle_positions_cache(self, line_ids: list[str] | None = None) -> None:
+        """
+        Download real-time vehicle positions filtered by line IDs and store
+        them in self._vp_cache: { line_id: [{pointId, distanceFromPoint, directionId}] }.
+        """
+        cache: dict[str, list[dict]] = {}
+        params_base: dict = {"limit": 1000}
+        if line_ids:
+            ids = sorted({str(l) for l in line_ids if l})
+            if ids:
+                params_base["where"] = f"lineid in ({', '.join(ids)})"
+
+        offset = 0
+        while True:
+            try:
+                data = await self._get(API_VEHICLE_POSITIONS, params={**params_base, "offset": offset})
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.warning("VehiclePositions fetch failed at offset %d: %s", offset, err)
+                break
+
+            results = data.get("results", [])
+            total = data.get("total_count", 0)
+
+            for row in results:
+                lid = str(row.get("lineid", ""))
+                positions = _maybe_parse_json(row.get("vehiclepositions", []))
+                if isinstance(positions, list):
+                    cache[lid] = positions
+
+            offset += len(results)
+            if not results or offset >= total:
+                break
+
+        _LOGGER.debug("VehiclePositions cache ready — %d lines indexed", len(cache))
+        self._vp_cache: dict[str, list[dict]] = cache
+
+    def get_vehicle_distance_for_stop(self, point_ids: list[str], line_id: str) -> int | None:
+        """
+        Return the distance in metres of the nearest vehicle of line_id
+        that is currently at one of the given point_ids.  No network I/O.
+        """
+        vp_cache = getattr(self, "_vp_cache", {})
+        positions = vp_cache.get(str(line_id), [])
+        if not positions:
+            return None
+
+        all_pids = set(point_ids) | {_normalize_point_id(p) for p in point_ids}
+        min_dist: int | None = None
+        for pos in positions:
+            pid = str(pos.get("pointId", ""))
+            bare = _normalize_point_id(pid)
+            if pid in all_pids or bare in all_pids:
+                d = pos.get("distanceFromPoint")
+                if d is not None and (min_dist is None or d < min_dist):
+                    min_dist = d
+        return min_dist
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
