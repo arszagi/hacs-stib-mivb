@@ -12,7 +12,6 @@ from .const import (
     API_KEY_HEADER,
     API_STOP_DETAILS,
     API_STOPS_BY_LINE,
-    API_VEHICLE_POSITIONS,
     API_WAITING_TIMES,
     LANGUAGE_FRENCH,
 )
@@ -371,9 +370,6 @@ class StibMivbApiClient:
 
         index: dict[str, list[dict]] = {}
         result: dict[str, list[dict]] = {}
-        # (line_id, terminal_bare_point_id) → "City" | "Suburb"
-        # Used to resolve direction from VehiclePositions.directionId
-        terminal_dir: dict[tuple[str, str], str] = {}
         PAGE = 100
         offset = 0
 
@@ -400,15 +396,7 @@ class StibMivbApiClient:
                 if not isinstance(points, list):
                     continue
 
-                # Build terminal→direction index from the last stop (highest order)
-                valid_pts = [p for p in points if isinstance(p, dict)]
-                if valid_pts and line_id and direction:
-                    terminal_pt = max(valid_pts, key=lambda p: p.get("order", 0))
-                    t_id = str(terminal_pt.get("id", ""))
-                    if t_id:
-                        for t_key in {t_id, _normalize_point_id(t_id)}:
-                            terminal_dir[(line_id, t_key)] = direction
-
+                        valid_pts = [p for p in points if isinstance(p, dict)]
                 entry = {
                     "line_id": line_id,
                     "dest_fr": dest_fr,
@@ -453,7 +441,6 @@ class StibMivbApiClient:
             {lid: [d["direction"] for d in dirs] for lid, dirs in result.items()},
         )
         self._point_to_lines = index
-        self._direction_by_terminal = terminal_dir
         return result
 
     # ── Canonical line destinations ──────────────────────────────────────────
@@ -522,89 +509,6 @@ class StibMivbApiClient:
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Could not fetch details for stop %s: %s", stop_id, err)
             return {}
-
-    # ── Vehicle positions ─────────────────────────────────────────────────────
-
-    async def refresh_vehicle_positions_cache(self, line_ids: list[str] | None = None) -> None:
-        """
-        Download real-time vehicle positions filtered by line IDs and store
-        them in self._vp_cache: { line_id: [{pointId, distanceFromPoint, directionId}] }.
-        """
-        cache: dict[str, list[dict]] = {}
-        params_base: dict = {"limit": 1000}
-        if line_ids:
-            ids = sorted({str(l) for l in line_ids if l})
-            if ids:
-                params_base["where"] = f"lineid in ({', '.join(ids)})"
-
-        offset = 0
-        while True:
-            try:
-                data = await self._get(API_VEHICLE_POSITIONS, params={**params_base, "offset": offset})
-            except Exception as err:  # noqa: BLE001
-                _LOGGER.warning("VehiclePositions fetch failed at offset %d: %s", offset, err)
-                break
-
-            results = data.get("results", [])
-            total = data.get("total_count", 0)
-
-            for row in results:
-                lid = str(row.get("lineid", ""))
-                positions = _maybe_parse_json(row.get("vehiclepositions", []))
-                if isinstance(positions, list):
-                    cache[lid] = positions
-
-            offset += len(results)
-            if not results or offset >= total:
-                break
-
-        _LOGGER.debug("VehiclePositions cache ready — %d lines indexed", len(cache))
-        self._vp_cache: dict[str, list[dict]] = cache
-
-    def get_vehicle_distance_for_stop(
-        self, point_ids: list[str], line_id: str, direction: str = ""
-    ) -> int | None:
-        """
-        Return the distance in metres of the nearest vehicle of line_id heading
-        in the given direction that is currently at one of the given point_ids.
-
-        Vehicles going the wrong way are excluded using the terminal→direction
-        index built from stopsByLine.  Vehicles at distanceFromPoint=0 that
-        have already departed are excluded when a matching WaitingTimes entry
-        confirms no imminent arrival (handled by the caller via is_boarding).
-        """
-        vp_cache = getattr(self, "_vp_cache", {})
-        dir_map = getattr(self, "_direction_by_terminal", {})
-        positions = vp_cache.get(str(line_id), [])
-        if not positions:
-            return None
-
-        all_pids = set(point_ids) | {_normalize_point_id(p) for p in point_ids}
-        min_dist: int | None = None
-
-        for pos in positions:
-            pid = str(pos.get("pointId", ""))
-            bare = _normalize_point_id(pid)
-
-            if pid not in all_pids and bare not in all_pids:
-                continue
-
-            # Filter by direction using the terminal point ID
-            if direction:
-                dir_id = str(pos.get("directionId", ""))
-                vehicle_dir = (
-                    dir_map.get((line_id, dir_id))
-                    or dir_map.get((line_id, _normalize_point_id(dir_id)))
-                    or ""
-                )
-                if vehicle_dir and vehicle_dir != direction:
-                    continue  # Vehicle heading the wrong way
-
-            d = pos.get("distanceFromPoint")
-            if d is not None and (min_dist is None or d < min_dist):
-                min_dist = d
-
-        return min_dist
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
