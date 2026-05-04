@@ -7,6 +7,7 @@ from typing import Any
 from homeassistant.components.sensor import SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -45,13 +46,23 @@ async def async_setup_entry(
     groups = entry.options.get(CONF_STOP_GROUPS) or entry.data.get(CONF_STOP_GROUPS, [])
 
     entities: list[StibMivbSensor] = []
+    valid_unique_ids: set[str] = set()
 
     for group in groups:
         skeletons = coordinator.static_lines.get(group["name_fr"], [])
         if not skeletons:
             skeletons = (coordinator.data or {}).get(group["name_fr"], [])
         for skeleton in skeletons:
-            entities.append(StibMivbSensor(coordinator, group, skeleton, language))
+            sensor = StibMivbSensor(coordinator, group, skeleton, language)
+            entities.append(sensor)
+            valid_unique_ids.add(sensor.unique_id)
+
+    # Remove entities from the registry that belong to stops no longer configured.
+    # When all entities of a device are removed, HA also removes the device automatically.
+    ent_reg = er.async_get(hass)
+    for entity_entry in er.async_entries_for_config_entry(ent_reg, entry.entry_id):
+        if entity_entry.unique_id not in valid_unique_ids:
+            ent_reg.async_remove(entity_entry.entity_id)
 
     async_add_entities(entities, update_before_add=False)
 
