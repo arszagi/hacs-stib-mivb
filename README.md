@@ -200,38 +200,6 @@ grid_options:
 
 ---
 
-### Automation — alert when a vehicle is arriving and will board passengers
-
-```yaml
-automation:
-  alias: "Alert: Bus 21 arriving in less than 3 min"
-  trigger:
-    - platform: numeric_state
-      entity_id: sensor.line_21_michel_ange_maes
-      below: 3
-  condition:
-    - condition: template
-      value_template: >
-        {{ state_attr('sensor.line_21_michel_ange_maes', 'is_boarding') == true }}
-  action:
-    - service: notify.mobile_app
-      data:
-        message: "Bus 21 arrives in {{ states('sensor.line_21_michel_ange_maes') }} min!"
-```
-
-### Template sensor — next passage as a clock time
-
-```yaml
-template:
-  - sensor:
-      - name: "Line 21 next passage time"
-        state: >
-          {% set ts = state_attr('sensor.line_21_michel_ange_maes', 'next_passage') %}
-          {% if ts %}{{ as_timestamp(ts) | timestamp_custom('%H:%M') }}{% else %}—{% endif %}
-```
-
----
-
 ## Data sources
 
 | Source | Endpoint | Used for |
