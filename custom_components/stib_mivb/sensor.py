@@ -7,6 +7,7 @@ from typing import Any
 from homeassistant.components.sensor import SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -57,12 +58,18 @@ async def async_setup_entry(
             entities.append(sensor)
             valid_unique_ids.add(sensor.unique_id)
 
-    # Remove entities from the registry that belong to stops no longer configured.
-    # When all entities of a device are removed, HA also removes the device automatically.
+    # Remove entities and orphaned devices for stops no longer configured.
     ent_reg = er.async_get(hass)
     for entity_entry in er.async_entries_for_config_entry(ent_reg, entry.entry_id):
         if entity_entry.unique_id not in valid_unique_ids:
             ent_reg.async_remove(entity_entry.entity_id)
+
+    # Remove devices that have no remaining entities after the cleanup above.
+    dev_reg = dr.async_get(hass)
+    for device_entry in dr.async_entries_for_config_entry(dev_reg, entry.entry_id):
+        remaining = er.async_entries_for_device(ent_reg, device_entry.id, include_disabled_entities=True)
+        if not remaining:
+            dev_reg.async_remove_device(device_entry.id)
 
     async_add_entities(entities, update_before_add=False)
 
