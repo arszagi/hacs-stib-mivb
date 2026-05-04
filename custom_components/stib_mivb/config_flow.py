@@ -14,6 +14,7 @@ from .api import StibMivbApiClient
 from .const import (
     CONF_API_KEY,
     CONF_LANGUAGE,
+    CONF_LINE_INFO,
     CONF_SCAN_INTERVAL,
     CONF_STOP_GROUPS,
     CONF_STOP_NAME,
@@ -199,6 +200,7 @@ class StibMivbOptionsFlow(config_entries.OptionsFlow):
     def __init__(self) -> None:
         """Initialise — config_entry is available via self.config_entry once the flow starts."""
         self._configured_groups: list[dict] | None = None
+        self._line_info: dict = {}
         self._client: StibMivbApiClient | None = None
         self._search_results: dict[str, dict] = {}
         self._language: str = LANGUAGE_FRENCH
@@ -222,12 +224,15 @@ class StibMivbOptionsFlow(config_entries.OptionsFlow):
                 or self.config_entry.data.get(CONF_STOP_GROUPS, [])
             )
             self._language = self.config_entry.data.get(CONF_LANGUAGE, LANGUAGE_FRENCH)
+            self._line_info = dict(self.config_entry.options.get(CONF_LINE_INFO, {}))
 
         if user_input is not None:
             action = user_input.get("action", "finish")
             if action == "add_stop":
                 await self._ensure_client()
                 return await self.async_step_search()
+            if action == "refresh_lines":
+                return await self.async_step_refresh_lines()
             return self.async_create_entry(
                 title="",
                 data={
@@ -235,6 +240,7 @@ class StibMivbOptionsFlow(config_entries.OptionsFlow):
                     CONF_SCAN_INTERVAL: user_input.get(
                         CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL
                     ),
+                    CONF_LINE_INFO: self._line_info,
                 },
             )
 
@@ -247,11 +253,47 @@ class StibMivbOptionsFlow(config_entries.OptionsFlow):
                     int, vol.Range(min=10, max=3600)
                 ),
                 vol.Required("action", default="finish"): vol.In(
-                    {"finish": "Save & close", "add_stop": "Add another stop"}
+                    {
+                        "finish": "Save & close",
+                        "add_stop": "Add another stop",
+                        "refresh_lines": "Refresh line colours & types (GTFS)",
+                    }
                 ),
             }
         )
         return self.async_show_form(step_id="init", data_schema=schema)
+
+    async def async_step_refresh_lines(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.FlowResult:
+        """Download fresh GTFS data and report how many lines were loaded."""
+        errors: dict[str, str] = {}
+        line_count = 0
+
+        if user_input is None:
+            # First call: do the download, then show the result form
+            try:
+                session = async_get_clientsession(self.hass)
+                api_key = self.config_entry.data.get(CONF_API_KEY, "")
+                client = StibMivbApiClient(session, api_key)
+                new_info = await client.load_line_info()
+                if new_info:
+                    self._line_info = new_info
+                    line_count = len(new_info)
+                else:
+                    errors["base"] = "gtfs_failed"
+            except Exception:  # noqa: BLE001
+                errors["base"] = "gtfs_failed"
+
+            return self.async_show_form(
+                step_id="refresh_lines",
+                data_schema=vol.Schema({}),
+                description_placeholders={"line_count": str(line_count)},
+                errors=errors,
+            )
+
+        # Second call (user clicked OK): go back to the options menu
+        return await self.async_step_init()
 
     async def async_step_search(
         self, user_input: dict[str, Any] | None = None

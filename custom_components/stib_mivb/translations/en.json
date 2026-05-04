@@ -61,7 +61,15 @@
         "data": {
           "stop_name": "Stop name"
         }
+      },
+      "refresh_lines": {
+        "title": "Refresh Line Data",
+        "description": "{line_count} lines loaded from STIB/MIVB v2 GTFS. Click Submit to go back.",
+        "data": {}
       }
+    },
+    "error": {
+      "gtfs_failed": "GTFS download failed. Check your connection and try again."
     }
   }
 }

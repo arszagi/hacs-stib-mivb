@@ -52,6 +52,16 @@ class StibMivbApiClient:
         # Canonical destinations: { line_id: [{direction, dest_fr, dest_nl}] }
         self._line_dest_cache: dict[str, list[dict]] = {}
 
+    async def _get_bytes(self, url: str) -> bytes:
+        """Download a binary resource (e.g. the GTFS ZIP)."""
+        async with self._session.get(
+            url,
+            headers=self._headers,
+            timeout=aiohttp.ClientTimeout(total=60),
+        ) as resp:
+            resp.raise_for_status()
+            return await resp.read()
+
     async def _get(self, url: str, params: dict | None = None) -> dict:
         """Make a GET request and return the JSON response."""
         try:
@@ -508,6 +518,59 @@ class StibMivbApiClient:
             }
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Could not fetch details for stop %s: %s", stop_id, err)
+            return {}
+
+    # ── GTFS line info ────────────────────────────────────────────────────────
+
+    async def load_line_info(self) -> dict[str, dict]:
+        """
+        Download the STIB GTFS ZIP, extract routes.txt and return a dict
+        { route_short_name: { color, text_color, type } } with official
+        line colours and vehicle types (metro/tram/bus).
+
+        Only routes.txt is read; the full ZIP (~18 MB) is streamed in memory
+        and discarded immediately.  No persistent state on the client.
+        """
+        import csv
+        import io
+        import zipfile
+
+        GTFS_URL = (
+            "https://api-management-opendata-production.azure-api.net"
+            "/api/gtfs/feed/stibmivb/static/"
+        )
+        ROUTE_TYPE_MAP = {0: "tram", 1: "metro", 3: "bus"}
+
+        try:
+            raw = await self._get_bytes(GTFS_URL)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("GTFS download failed: %s", err)
+            return {}
+
+        try:
+            with zipfile.ZipFile(io.BytesIO(raw)) as zf:
+                with zf.open("routes.txt") as f:
+                    reader = csv.DictReader(io.TextIOWrapper(f, encoding="utf-8"))
+                    result: dict[str, dict] = {}
+                    for row in reader:
+                        name = row.get("route_short_name", "").strip()
+                        if not name:
+                            continue
+                        try:
+                            rt = int(row.get("route_type", 3))
+                        except ValueError:
+                            rt = 3
+                        color = row.get("route_color", "").strip()
+                        text_color = row.get("route_text_color", "").strip()
+                        result[name] = {
+                            "color": f"#{color}" if color else "#888888",
+                            "text_color": f"#{text_color}" if text_color else "#FFFFFF",
+                            "type": ROUTE_TYPE_MAP.get(rt, "bus"),
+                        }
+            _LOGGER.debug("GTFS loaded: %d lines", len(result))
+            return result
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("GTFS parsing failed: %s", err)
             return {}
 
     # ── Helpers ───────────────────────────────────────────────────────────────

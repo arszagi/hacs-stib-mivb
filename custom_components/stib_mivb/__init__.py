@@ -13,10 +13,12 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from .api import StibMivbApiClient, _normalize_point_id
 from .const import (
     CONF_API_KEY,
+    CONF_LINE_INFO,
     CONF_SCAN_INTERVAL,
     CONF_STOP_GROUPS,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
+    STIB_LINE_INFO,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -44,7 +46,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     scan_interval = entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
 
-    coordinator = StibMivbCoordinator(hass, client, entry, scan_interval)
+    # Load GTFS line info — use cache from options when available, otherwise download.
+    # This download happens at every fresh install; on subsequent starts the cached
+    # data from entry.options is used.  The user can force a refresh via Options flow.
+    cached_line_info: dict = entry.options.get(CONF_LINE_INFO, {})
+    if not cached_line_info:
+        _LOGGER.debug("No cached GTFS line info — downloading routes.txt...")
+        cached_line_info = await client.load_line_info()
+        if cached_line_info:
+            # Persist to options BEFORE the update-listener is registered so this
+            # write does not trigger a reload of the entry.
+            hass.config_entries.async_update_entry(
+                entry, options={**entry.options, CONF_LINE_INFO: cached_line_info}
+            )
+        else:
+            _LOGGER.warning("GTFS download failed — using built-in line data as fallback")
+
+    # Merge: built-in hardcoded dict as base, GTFS as override (more up-to-date)
+    line_info: dict = {**STIB_LINE_INFO, **cached_line_info}
+
+    coordinator = StibMivbCoordinator(hass, client, entry, scan_interval, line_info)
 
     # Build the static line skeleton before the first refresh so that sensors
     # for ALL lines serving a stop are created immediately — even when no
@@ -83,10 +104,12 @@ class StibMivbCoordinator(DataUpdateCoordinator):
         client: StibMivbApiClient,
         entry: ConfigEntry,
         scan_interval: int,
+        line_info: dict,
     ) -> None:
         """Initialise coordinator."""
         self.client = client
         self.entry = entry
+        self.line_info: dict = line_info
         # Static skeleton: { name_fr: [ {line_id, dest_fr, dest_nl, direction} ] }
         # Built once at setup via async_build_static_lines().
         # This is what sensor.py uses to pre-create all sensors.

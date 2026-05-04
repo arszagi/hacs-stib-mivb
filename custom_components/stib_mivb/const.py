@@ -9,6 +9,7 @@ CONF_STOP_SEARCH = "stop_search"
 CONF_STOP_NAME = "stop_name"
 CONF_STOP_GROUPS = "stop_groups"  # list of grouped stop entries
 CONF_SCAN_INTERVAL = "scan_interval"
+CONF_LINE_INFO = "line_info"  # GTFS-derived line colours/types, cached in options
 
 LANGUAGE_FRENCH = "fr"
 LANGUAGE_DUTCH = "nl"

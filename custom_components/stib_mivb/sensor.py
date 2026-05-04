@@ -137,7 +137,7 @@ class StibMivbSensor(CoordinatorEntity[StibMivbCoordinator], SensorEntity):
         dest = self._dest_fr if self._language == LANGUAGE_FRENCH else self._dest_nl
         next_passage_ts = p.get("next_passage")
         next_passage_minutes = self.coordinator.client._minutes_until(next_passage_ts)
-        line_info = STIB_LINE_INFO.get(self._line_id, {})
+        line_info = self.coordinator.line_info.get(self._line_id, STIB_LINE_INFO.get(self._line_id, {}))
         line_type = line_info.get("type", "bus")
 
         return {
