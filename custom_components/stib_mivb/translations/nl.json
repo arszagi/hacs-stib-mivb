@@ -1,0 +1,82 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "STIB/MIVB instellen",
+        "description": "Voer uw STIB/MIVB API-sleutel in en kies de gewenste weergavetaal. Vraag een gratis sleutel aan op opendata.stib-mivb.be.",
+        "data": {
+          "language": "Weergavetaal",
+          "api_key": "API-sleutel (bmc-partner-key)"
+        }
+      },
+      "search": {
+        "title": "Een halte zoeken",
+        "description": "Typ een deel van de haltenaam (min. 2 tekens). Al toegevoegd: {already_added}",
+        "data": {
+          "stop_search": "Halte zoeken op naam"
+        }
+      },
+      "pick_stop": {
+        "title": "Een halte selecteren",
+        "description": "Kies de halte die u wilt volgen.",
+        "data": {
+          "stop_name": "Haltenaam"
+        }
+      },
+      "confirm": {
+        "title": "Configuratie bevestigen",
+        "description": "Te volgen haltes:\n{stops_summary}\n\nVoeg meer haltes toe of voltooi de instelling.",
+        "data": {
+          "action": "Volgende actie"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Kan geen verbinding maken met de STIB/MIVB API.",
+      "invalid_api_key": "Ongeldige API-sleutel — het testverzoek heeft geen gegevens opgeleverd.",
+      "search_too_short": "Voer minimaal 2 tekens in.",
+      "no_results": "Geen haltes gevonden die overeenkomen met uw zoekopdracht."
+    },
+    "abort": {
+      "already_configured": "STIB/MIVB is al geconfigureerd."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "STIB/MIVB opties",
+        "data": {
+          "scan_interval": "Verversingsinterval (seconden)",
+          "action": "Volgende actie"
+        }
+      },
+      "search": {
+        "title": "Een halte zoeken",
+        "data": {
+          "stop_search": "Halte zoeken op naam"
+        }
+      },
+      "pick_stop": {
+        "title": "Een halte selecteren",
+        "data": {
+          "stop_name": "Haltenaam"
+        }
+      },
+      "remove_stop": {
+        "title": "Een halte verwijderen",
+        "description": "Selecteer de halte die u wilt verwijderen.",
+        "data": {
+          "stop_to_remove": "Te verwijderen halte"
+        }
+      },
+      "refresh_lines": {
+        "title": "Lijngegevens vernieuwen",
+        "description": "{line_count} lijnen geladen uit de STIB/MIVB GTFS. Klik op Verzenden om terug te gaan.",
+        "data": {}
+      }
+    },
+    "error": {
+      "gtfs_failed": "GTFS downloaden mislukt. Controleer uw verbinding en probeer opnieuw."
+    }
+  }
+}

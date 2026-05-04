@@ -1,0 +1,82 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Configuration STIB/MIVB",
+        "description": "Entrez votre clé API STIB/MIVB et la langue d'affichage souhaitée. Demandez une clé gratuite sur opendata.stib-mivb.be.",
+        "data": {
+          "language": "Langue d'affichage",
+          "api_key": "Clé API (bmc-partner-key)"
+        }
+      },
+      "search": {
+        "title": "Rechercher un arrêt",
+        "description": "Tapez une partie du nom de l'arrêt (min. 2 caractères). Déjà ajoutés : {already_added}",
+        "data": {
+          "stop_search": "Recherche par nom d'arrêt"
+        }
+      },
+      "pick_stop": {
+        "title": "Sélectionner un arrêt",
+        "description": "Choisissez l'arrêt que vous souhaitez surveiller.",
+        "data": {
+          "stop_name": "Nom de l'arrêt"
+        }
+      },
+      "confirm": {
+        "title": "Confirmer la configuration",
+        "description": "Arrêts à surveiller :\n{stops_summary}\n\nAjoutez d'autres arrêts ou terminez la configuration.",
+        "data": {
+          "action": "Action suivante"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Impossible de se connecter à l'API STIB/MIVB.",
+      "invalid_api_key": "Clé API invalide — la requête de test n'a retourné aucune donnée.",
+      "search_too_short": "Veuillez entrer au moins 2 caractères.",
+      "no_results": "Aucun arrêt trouvé correspondant à votre recherche."
+    },
+    "abort": {
+      "already_configured": "STIB/MIVB est déjà configuré."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Options STIB/MIVB",
+        "data": {
+          "scan_interval": "Intervalle de mise à jour (secondes)",
+          "action": "Action suivante"
+        }
+      },
+      "search": {
+        "title": "Rechercher un arrêt",
+        "data": {
+          "stop_search": "Recherche par nom d'arrêt"
+        }
+      },
+      "pick_stop": {
+        "title": "Sélectionner un arrêt",
+        "data": {
+          "stop_name": "Nom de l'arrêt"
+        }
+      },
+      "remove_stop": {
+        "title": "Supprimer un arrêt",
+        "description": "Sélectionnez l'arrêt que vous souhaitez supprimer.",
+        "data": {
+          "stop_to_remove": "Arrêt à supprimer"
+        }
+      },
+      "refresh_lines": {
+        "title": "Actualiser les données des lignes",
+        "description": "{line_count} lignes chargées depuis le GTFS STIB/MIVB. Cliquez sur Soumettre pour revenir.",
+        "data": {}
+      }
+    },
+    "error": {
+      "gtfs_failed": "Échec du téléchargement GTFS. Vérifiez votre connexion et réessayez."
+    }
+  }
+}

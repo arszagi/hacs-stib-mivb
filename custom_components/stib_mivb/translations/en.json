@@ -62,6 +62,13 @@
           "stop_name": "Stop name"
         }
       },
+      "remove_stop": {
+        "title": "Remove a Stop",
+        "description": "Select the stop you want to remove.",
+        "data": {
+          "stop_to_remove": "Stop to remove"
+        }
+      },
       "refresh_lines": {
         "title": "Refresh Line Data",
         "description": "{line_count} lines loaded from STIB/MIVB v2 GTFS. Click Submit to go back.",

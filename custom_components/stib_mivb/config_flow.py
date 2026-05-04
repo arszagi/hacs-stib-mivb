@@ -231,6 +231,8 @@ class StibMivbOptionsFlow(config_entries.OptionsFlow):
             if action == "add_stop":
                 await self._ensure_client()
                 return await self.async_step_search()
+            if action == "remove_stop":
+                return await self.async_step_remove_stop()
             if action == "refresh_lines":
                 return await self.async_step_refresh_lines()
             return self.async_create_entry(
@@ -247,21 +249,41 @@ class StibMivbOptionsFlow(config_entries.OptionsFlow):
         current_interval = self.config_entry.options.get(
             CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL
         )
+        actions: dict[str, str] = {
+            "finish": "Save & close",
+            "add_stop": "Add another stop",
+        }
+        if self._configured_groups:
+            actions["remove_stop"] = "Remove a stop"
+        actions["refresh_lines"] = "Refresh line colours & types (GTFS)"
+
         schema = vol.Schema(
             {
                 vol.Optional(CONF_SCAN_INTERVAL, default=current_interval): vol.All(
                     int, vol.Range(min=10, max=3600)
                 ),
-                vol.Required("action", default="finish"): vol.In(
-                    {
-                        "finish": "Save & close",
-                        "add_stop": "Add another stop",
-                        "refresh_lines": "Refresh line colours & types (GTFS)",
-                    }
-                ),
+                vol.Required("action", default="finish"): vol.In(actions),
             }
         )
         return self.async_show_form(step_id="init", data_schema=schema)
+
+    async def async_step_remove_stop(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.FlowResult:
+        """Select a configured stop to remove."""
+        if user_input is not None:
+            name_to_remove = user_input.get("stop_to_remove")
+            self._configured_groups = [
+                g for g in self._configured_groups if g["name_fr"] != name_to_remove
+            ]
+            return await self.async_step_init()
+
+        options = {
+            g["name_fr"]: f"{g['name_fr']} / {g['name_nl']}  [{len(g.get('point_ids', []))} platform{'s' if len(g.get('point_ids', [])) > 1 else ''}]"
+            for g in self._configured_groups
+        }
+        schema = vol.Schema({vol.Required("stop_to_remove"): vol.In(options)})
+        return self.async_show_form(step_id="remove_stop", data_schema=schema)
 
     async def async_step_refresh_lines(
         self, user_input: dict[str, Any] | None = None

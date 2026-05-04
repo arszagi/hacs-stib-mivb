@@ -1,7 +1,7 @@
 # STIB/MIVB — Home Assistant Integration
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
-[![version](https://img.shields.io/badge/version-3.0.1-blue.svg)](https://github.com/arszagi/hacs-stib-mivb/releases)
+[![version](https://img.shields.io/badge/version-3.1.0-blue.svg)](https://github.com/arszagi/hacs-stib-mivb/releases)
 [![HACS Validation](https://github.com/arszagi/hacs-stib-mivb/actions/workflows/validate.yml/badge.svg)](https://github.com/arszagi/hacs-stib-mivb/actions/workflows/validate.yml)
 [![Hassfest](https://github.com/arszagi/hacs-stib-mivb/actions/workflows/hassfest.yml/badge.svg)](https://github.com/arszagi/hacs-stib-mivb/actions/workflows/hassfest.yml)
 
@@ -107,6 +107,7 @@ Go to **Settings → Devices & Services → STIB/MIVB → Configure** to:
 |---|---|
 | **Update interval** | Polling frequency in seconds (10–3600, default 30) |
 | **Add another stop** | Search and add a new stop group |
+| **Remove a stop** | Select and remove a configured stop group |
 | **Refresh line colours & types** | Re-download the GTFS feed to get updated line colours and vehicle types |
 
 ---
