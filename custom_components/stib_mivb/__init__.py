@@ -271,6 +271,8 @@ class StibMivbCoordinator(DataUpdateCoordinator):
                         "minutes": p.get("minutes"),
                         "next_passage": p.get("next_passage"),
                         "point_id": p.get("point_id"),
+                        "message": p.get("message", ""),
+                        "is_boarding": p.get("is_boarding", True),
                     })
                 else:
                     # Line not in static skeleton (shouldn't normally happen);
@@ -289,6 +291,8 @@ class StibMivbCoordinator(DataUpdateCoordinator):
                         "minutes": p.get("minutes"),
                         "next_passage": p.get("next_passage"),
                         "point_id": p.get("point_id"),
+                        "message": p.get("message", ""),
+                        "is_boarding": p.get("is_boarding", True),
                     }
 
             data[name_fr] = list(skeleton.values())
