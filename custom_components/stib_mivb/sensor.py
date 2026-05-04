@@ -28,6 +28,8 @@ from .const import (
     CONF_STOP_GROUPS,
     DOMAIN,
     LANGUAGE_FRENCH,
+    STIB_LINE_INFO,
+    STIB_TYPE_LABEL,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -135,6 +137,8 @@ class StibMivbSensor(CoordinatorEntity[StibMivbCoordinator], SensorEntity):
         dest = self._dest_fr if self._language == LANGUAGE_FRENCH else self._dest_nl
         next_passage_ts = p.get("next_passage")
         next_passage_minutes = self.coordinator.client._minutes_until(next_passage_ts)
+        line_info = STIB_LINE_INFO.get(self._line_id, {})
+        line_type = line_info.get("type", "bus")
 
         return {
             "current_passage": p.get("current_passage"),
@@ -149,6 +153,10 @@ class StibMivbSensor(CoordinatorEntity[StibMivbCoordinator], SensorEntity):
             ATTR_POINT_IDS: self._point_ids,
             ATTR_MESSAGE: p.get("message", ""),
             ATTR_IS_BOARDING: p.get("is_boarding", True),
+            "line_type": line_type,
+            "line_type_label": STIB_TYPE_LABEL.get(line_type, "B"),
+            "line_color": line_info.get("color", "#888888"),
+            "line_text_color": line_info.get("text_color", "#FFFFFF"),
         }
 
     @property
