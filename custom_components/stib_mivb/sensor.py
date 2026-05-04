@@ -14,7 +14,6 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from . import StibMivbCoordinator
 from .const import (
     ATTR_DESTINATION,
-    ATTR_DIRECTION,
     ATTR_IS_BOARDING,
     ATTR_LATITUDE,
     ATTR_LINE_ID,

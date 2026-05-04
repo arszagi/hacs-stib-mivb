@@ -1,6 +1,7 @@
 # STIB/MIVB — Home Assistant Integration
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
+[![version](https://img.shields.io/badge/version-3.0.0-blue.svg)](https://github.com/arszagi/hacs-stib-mivb/releases)
 
 Monitor real-time waiting times for the **Brussels public transport network (STIB/MIVB)** directly in Home Assistant — buses, trams and metro.
 
@@ -55,7 +56,7 @@ At first launch the integration also downloads the STIB GTFS feed to get officia
 
 ## Sensors
 
-Each sensor is named **`sensor.line_<LINE>_<STOP>_<DESTINATION>`** and belongs to a **device** named after the stop.
+Each sensor is named **`Line <LINE> – <STOP> → <DESTINATION>`**. Home Assistant generates the entity ID from this name, typically as `sensor.line_<line>_<stop>_<destination>`. The sensor belongs to a **device** named after the stop group.
 
 | State | Meaning |
 |---|---|
@@ -68,10 +69,10 @@ Each sensor is named **`sensor.line_<LINE>_<STOP>_<DESTINATION>`** and belongs t
 | Attribute | Type | Description |
 |---|---|---|
 | `current_passage` | ISO timestamp | Expected arrival time of the next vehicle |
-| `next_passage` | ISO timestamp | Expected arrival time of the vehicle after next |
-| `next_passage_minutes` | int | Minutes until the vehicle after next |
+| `next_passage` | ISO timestamp \| `None` | Expected arrival time of the vehicle after next (None if only one vehicle in queue) |
+| `next_passage_minutes` | int \| `None` | Minutes until the vehicle after next |
 | `destination` | string | Real-time destination (in your chosen language) |
-| `message` | string | Service message from STIB (see below) |
+| `message` | string | Service message from STIB — empty string when none (see below) |
 | `is_boarding` | bool | `false` when the vehicle will not stop for passengers |
 | `line_id` | string | Line number e.g. `"25"` |
 | `line_type` | string | `"bus"`, `"tram"` or `"metro"` |
@@ -84,6 +85,8 @@ Each sensor is named **`sensor.line_<LINE>_<STOP>_<DESTINATION>`** and belongs t
 | `point_ids` | list | Physical platform IDs grouped under this stop |
 
 ### Service messages
+
+The `message` attribute reflects real-time flags on the current passage. It is an empty string during normal operation.
 
 | `message` value | `is_boarding` | Meaning |
 |---|---|---|
@@ -120,9 +123,9 @@ The examples below use **[Mushroom](https://github.com/piitaya/lovelace-mushroom
 
 ![Preview](docs/lovelace-preview.png)
 
-Each card shows the **official STIB line colour** as background, the **line number** in the matching text colour (black on yellow, white on dark), and a **B / T / M badge** in red indicating the vehicle type. The secondary line displays the message when STIB sends one (e.g. "Ne pas embarquer"), otherwise shows the waiting times.
+Each card shows the **official STIB line colour** as background, the **line number** in the matching text colour (black on yellow, white on dark), and a **B / T / M badge** in red indicating the vehicle type. The secondary line displays the service message when STIB sends one, otherwise shows the waiting times.
 
-The line number square is generated as an inline SVG — no image files required.
+The line number square is generated as an inline SVG — **no image files required**.
 
 ```yaml
 square: true
@@ -196,7 +199,7 @@ grid_options:
   rows: auto
 ```
 
-> **How the line number square works:** the `picture` field is generated as an inline SVG data URL — a coloured rounded rectangle inscribed inside the circle that Mushroom applies to pictures. `line_color` sets the background, `line_text_color` sets the number colour (black on light backgrounds like line 21 yellow, white on dark backgrounds like line 79 blue). No external image files are needed.
+> **How the line number square works:** the `picture` field is a coloured rounded rectangle inscribed inside the circle that Mushroom clips pictures to. `line_color` sets the background, `line_text_color` sets the number colour automatically. No external image files are needed.
 
 ---
 
@@ -204,7 +207,7 @@ grid_options:
 
 | Source | Endpoint | Used for |
 |---|---|---|
-| STIB Open Data | `rt/WaitingTimes` | Real-time arrivals (filtered by stop) |
+| STIB Open Data | `rt/WaitingTimes` | Real-time arrivals, filtered by configured stops |
 | STIB Open Data | `static/stopsByLine` | Line directions and canonical destinations |
 | STIB Open Data | `static/StopDetails` | Stop catalogue (names, coordinates) |
 | STIB GTFS | `routes.txt` | Official line colours and vehicle types |
