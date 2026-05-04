@@ -371,6 +371,9 @@ class StibMivbApiClient:
 
         index: dict[str, list[dict]] = {}
         result: dict[str, list[dict]] = {}
+        # (line_id, terminal_bare_point_id) → "City" | "Suburb"
+        # Used to resolve direction from VehiclePositions.directionId
+        terminal_dir: dict[tuple[str, str], str] = {}
         PAGE = 100
         offset = 0
 
@@ -397,6 +400,15 @@ class StibMivbApiClient:
                 if not isinstance(points, list):
                     continue
 
+                # Build terminal→direction index from the last stop (highest order)
+                valid_pts = [p for p in points if isinstance(p, dict)]
+                if valid_pts and line_id and direction:
+                    terminal_pt = max(valid_pts, key=lambda p: p.get("order", 0))
+                    t_id = str(terminal_pt.get("id", ""))
+                    if t_id:
+                        for t_key in {t_id, _normalize_point_id(t_id)}:
+                            terminal_dir[(line_id, t_key)] = direction
+
                 entry = {
                     "line_id": line_id,
                     "dest_fr": dest_fr,
@@ -404,8 +416,8 @@ class StibMivbApiClient:
                     "direction": direction,
                 }
 
-                for pt in points:
-                    pid = str(pt.get("id", "")) if isinstance(pt, dict) else str(pt)
+                for pt in valid_pts:
+                    pid = str(pt.get("id", ""))
                     if not pid:
                         continue
                     bare_pid = _normalize_point_id(pid)
@@ -441,6 +453,7 @@ class StibMivbApiClient:
             {lid: [d["direction"] for d in dirs] for lid, dirs in result.items()},
         )
         self._point_to_lines = index
+        self._direction_by_terminal = terminal_dir
         return result
 
     # ── Canonical line destinations ──────────────────────────────────────────
@@ -548,25 +561,49 @@ class StibMivbApiClient:
         _LOGGER.debug("VehiclePositions cache ready — %d lines indexed", len(cache))
         self._vp_cache: dict[str, list[dict]] = cache
 
-    def get_vehicle_distance_for_stop(self, point_ids: list[str], line_id: str) -> int | None:
+    def get_vehicle_distance_for_stop(
+        self, point_ids: list[str], line_id: str, direction: str = ""
+    ) -> int | None:
         """
-        Return the distance in metres of the nearest vehicle of line_id
-        that is currently at one of the given point_ids.  No network I/O.
+        Return the distance in metres of the nearest vehicle of line_id heading
+        in the given direction that is currently at one of the given point_ids.
+
+        Vehicles going the wrong way are excluded using the terminal→direction
+        index built from stopsByLine.  Vehicles at distanceFromPoint=0 that
+        have already departed are excluded when a matching WaitingTimes entry
+        confirms no imminent arrival (handled by the caller via is_boarding).
         """
         vp_cache = getattr(self, "_vp_cache", {})
+        dir_map = getattr(self, "_direction_by_terminal", {})
         positions = vp_cache.get(str(line_id), [])
         if not positions:
             return None
 
         all_pids = set(point_ids) | {_normalize_point_id(p) for p in point_ids}
         min_dist: int | None = None
+
         for pos in positions:
             pid = str(pos.get("pointId", ""))
             bare = _normalize_point_id(pid)
-            if pid in all_pids or bare in all_pids:
-                d = pos.get("distanceFromPoint")
-                if d is not None and (min_dist is None or d < min_dist):
-                    min_dist = d
+
+            if pid not in all_pids and bare not in all_pids:
+                continue
+
+            # Filter by direction using the terminal point ID
+            if direction:
+                dir_id = str(pos.get("directionId", ""))
+                vehicle_dir = (
+                    dir_map.get((line_id, dir_id))
+                    or dir_map.get((line_id, _normalize_point_id(dir_id)))
+                    or ""
+                )
+                if vehicle_dir and vehicle_dir != direction:
+                    continue  # Vehicle heading the wrong way
+
+            d = pos.get("distanceFromPoint")
+            if d is not None and (min_dist is None or d < min_dist):
+                min_dist = d
+
         return min_dist
 
     # ── Helpers ───────────────────────────────────────────────────────────────

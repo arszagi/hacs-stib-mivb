@@ -277,7 +277,7 @@ class StibMivbCoordinator(DataUpdateCoordinator):
             passages = list(skeleton.values())
             for item in passages:
                 item["vehicle_distance_m"] = self.client.get_vehicle_distance_for_stop(
-                    point_ids, item["line_id"]
+                    point_ids, item["line_id"], item.get("direction", "")
                 )
             data[name_fr] = passages
 

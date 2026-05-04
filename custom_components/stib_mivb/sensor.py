@@ -55,13 +55,9 @@ async def async_setup_entry(
         for skeleton in skeletons:
             entities.append(StibMivbSensor(coordinator, group, skeleton, language))
 
-        # Vehicle distance sensors — one per line (direction-agnostic)
-        seen_lines: set[str] = set()
+        # Vehicle distance sensors — one per (line, direction)
         for skeleton in skeletons:
-            line_id = skeleton["line_id"]
-            if line_id not in seen_lines:
-                seen_lines.add(line_id)
-                entities.append(StibMivbVehicleSensor(coordinator, group, skeleton, language))
+            entities.append(StibMivbVehicleSensor(coordinator, group, skeleton, language))
 
     async_add_entities(entities, update_before_add=False)
 
@@ -171,10 +167,12 @@ class StibMivbSensor(CoordinatorEntity[StibMivbCoordinator], SensorEntity):
 class StibMivbVehicleSensor(CoordinatorEntity[StibMivbCoordinator], SensorEntity):
     """
     Sensor showing the distance in metres of the nearest vehicle of a line
-    currently at one of the stop's platforms.
+    heading in the correct direction towards this stop.
+
+    One sensor per (line, direction) — same granularity as wait-time sensors.
 
     Device  = stop name  (e.g. "FOREST NATIONAL")
-    Sensor  = "Line 54 – FOREST NATIONAL [vehicle]"
+    Sensor  = "Line 54 – FOREST NATIONAL → BOONDAEL GARE [vehicle]"
     """
 
     _attr_state_class = SensorStateClass.MEASUREMENT
@@ -194,13 +192,19 @@ class StibMivbVehicleSensor(CoordinatorEntity[StibMivbCoordinator], SensorEntity
         self._name_nl: str = group["name_nl"]
         self._point_ids: list[str] = group.get("point_ids", [])
         self._line_id: str = passage["line_id"]
+        self._direction: str = passage.get("direction", "")
+        self._dest_fr: str = passage.get("dest_fr") or passage.get("rt_dest_fr", "")
+        self._dest_nl: str = passage.get("dest_nl") or passage.get("rt_dest_nl", "")
 
         stop_display = self._name_fr if language == LANGUAGE_FRENCH else self._name_nl
+        dest_display = self._dest_fr if language == LANGUAGE_FRENCH else self._dest_nl
+
         stop_slug = _slug(self._name_fr)
+        dest_slug = _slug(self._dest_fr)
         first_pid = self._point_ids[0] if self._point_ids else "unknown"
 
-        self._attr_unique_id = f"{DOMAIN}_{first_pid}_{self._line_id}_{stop_slug}_vehicle"
-        self._attr_name = f"Line {self._line_id} – {stop_display} [vehicle]"
+        self._attr_unique_id = f"{DOMAIN}_{first_pid}_{self._line_id}_{stop_slug}_{dest_slug}_vehicle"
+        self._attr_name = f"Line {self._line_id} – {stop_display} → {dest_display} [vehicle]"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, f"stop_group_{self._name_fr}")},
             name=stop_display,
@@ -209,20 +213,35 @@ class StibMivbVehicleSensor(CoordinatorEntity[StibMivbCoordinator], SensorEntity
         )
 
     @property
-    def native_value(self) -> int | None:
+    def _current_passage(self) -> dict:
         passages = (self.coordinator.data or {}).get(self._name_fr, [])
         for p in passages:
-            if p["line_id"] == self._line_id:
-                return p.get("vehicle_distance_m")
-        return None
+            if p["line_id"] == self._line_id and (
+                p.get("dest_fr") == self._dest_fr
+                or p.get("rt_dest_fr") == self._dest_fr
+            ):
+                return p
+        return {}
+
+    @property
+    def native_value(self) -> int | None:
+        p = self._current_passage
+        dist = p.get("vehicle_distance_m")
+        # Hide distance when the vehicle is not boarding (already departed)
+        if dist is not None and not p.get("is_boarding", True) and dist == 0:
+            return None
+        return dist
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
+        p = self._current_passage
         return {
             ATTR_LINE_ID: self._line_id,
+            ATTR_DIRECTION: self._direction,
             ATTR_STOP_NAME_FR: self._name_fr,
             ATTR_STOP_NAME_NL: self._name_nl,
             ATTR_POINT_IDS: self._point_ids,
+            ATTR_IS_BOARDING: p.get("is_boarding", True),
         }
 
     @property
