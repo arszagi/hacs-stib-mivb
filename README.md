@@ -19,8 +19,9 @@ Monitor real-time waiting times for the **Brussels public transport network (STI
 - **Service messages** — "Ne pas embarquer", "Ligne déviée", "Temps théorique"
 - **Optimised API usage** — only your monitored stops are fetched (~2 KB per refresh instead of ~1 MB)
 - **Configurable polling interval** (default 30 s, min 10 s)
-- **Add stops at any time** via the integration options
+- **Add or remove stops** at any time via the integration options
 - **Refresh line data** manually to get updated GTFS colours and types
+- **Reconfigure API key** without losing your configured stops
 
 ---
 
@@ -109,6 +110,12 @@ Go to **Settings → Devices & Services → STIB/MIVB → Configure** to:
 | **Add another stop** | Search and add a new stop group |
 | **Remove a stop** | Select and remove a configured stop group |
 | **Refresh line colours & types** | Re-download the GTFS feed to get updated line colours and vehicle types |
+
+Go to **Settings → Devices & Services → STIB/MIVB → Reconfigure** to:
+
+| Option | Description |
+|---|---|
+| **API key** | Update your API key — stops and settings are preserved |
 
 ---
 
