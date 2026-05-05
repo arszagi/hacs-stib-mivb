@@ -23,6 +23,13 @@
           "stop_name": "Haltenaam"
         }
       },
+      "reconfigure": {
+        "title": "STIB/MIVB herconfigureren",
+        "description": "Werk uw API-sleutel bij. Uw haltes en instellingen blijven behouden.",
+        "data": {
+          "api_key": "API-sleutel (bmc-partner-key)"
+        }
+      },
       "confirm": {
         "title": "Configuratie bevestigen",
         "description": "Te volgen haltes:\n{stops_summary}\n\nVoeg meer haltes toe of voltooi de instelling.",

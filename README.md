@@ -1,7 +1,7 @@
 # STIB/MIVB — Home Assistant Integration
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
-[![version](https://img.shields.io/badge/version-3.1.2-blue.svg)](https://github.com/arszagi/hacs-stib-mivb/releases)
+[![version](https://img.shields.io/badge/version-3.1.3-blue.svg)](https://github.com/arszagi/hacs-stib-mivb/releases)
 [![HACS Validation](https://github.com/arszagi/hacs-stib-mivb/actions/workflows/validate.yml/badge.svg)](https://github.com/arszagi/hacs-stib-mivb/actions/workflows/validate.yml)
 [![Hassfest](https://github.com/arszagi/hacs-stib-mivb/actions/workflows/hassfest.yml/badge.svg)](https://github.com/arszagi/hacs-stib-mivb/actions/workflows/hassfest.yml)
 

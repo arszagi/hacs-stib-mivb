@@ -23,6 +23,13 @@
           "stop_name": "Nom de l'arrêt"
         }
       },
+      "reconfigure": {
+        "title": "Reconfigurer STIB/MIVB",
+        "description": "Mettez à jour votre clé API. Vos arrêts et paramètres seront conservés.",
+        "data": {
+          "api_key": "Clé API (bmc-partner-key)"
+        }
+      },
       "confirm": {
         "title": "Confirmer la configuration",
         "description": "Arrêts à surveiller :\n{stops_summary}\n\nAjoutez d'autres arrêts ou terminez la configuration.",

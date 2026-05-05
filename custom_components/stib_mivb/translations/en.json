@@ -23,6 +23,13 @@
           "stop_name": "Stop name"
         }
       },
+      "reconfigure": {
+        "title": "Reconfigure STIB/MIVB",
+        "description": "Update your API key. Your stops and settings will be preserved.",
+        "data": {
+          "api_key": "API key (bmc-partner-key)"
+        }
+      },
       "confirm": {
         "title": "Confirm Configuration",
         "description": "Stops to monitor:\n{stops_summary}\n\nAdd more stops or finish setup.",

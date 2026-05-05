@@ -185,6 +185,36 @@ class StibMivbConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             },
         )
 
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.FlowResult:
+        """Allow changing the API key without removing the integration."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            api_key = user_input[CONF_API_KEY].strip()
+            session = async_get_clientsession(self.hass)
+            client = StibMivbApiClient(session, api_key)
+
+            try:
+                details = await client.get_stop_details("2935")
+                if not details:
+                    errors[CONF_API_KEY] = "invalid_api_key"
+                else:
+                    return self.async_update_reload_and_abort(
+                        self._get_reconfigure_entry(),
+                        data_updates={CONF_API_KEY: api_key},
+                    )
+            except aiohttp.ClientError:
+                errors["base"] = "cannot_connect"
+
+        schema = vol.Schema({vol.Required(CONF_API_KEY): str})
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=schema,
+            errors=errors,
+        )
+
     @staticmethod
     @callback
     def async_get_options_flow(
