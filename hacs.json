@@ -1,6 +1,5 @@
 {
   "name": "STIB/MIVB",
-  "content_in_root": false,
-  "render_readme": true,
-  "filename": "stib_mivb.zip"
+  "country": "BE",
+  "homeassistant": "2024.4.0"
 }
